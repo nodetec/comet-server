@@ -1,0 +1,13 @@
+{
+  "name": "nostr-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run src/main.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "nostr-tools": "^2.10.4"
+  }
+}

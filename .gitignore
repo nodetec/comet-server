@@ -137,3 +137,9 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Relay data
+data/
+relay.db
+relay.db-wal
+relay.db-shm
