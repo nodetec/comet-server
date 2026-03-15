@@ -1,4 +1,4 @@
-app = "sync-relay-q7qxcg"
+app = "sync-relay-q5gzcq"
 primary_region = "ams"
 
 [build]
@@ -7,7 +7,7 @@ primary_region = "ams"
 [env]
   PORT = "3000"
   DB_PATH = "/data/relay.db"
-  RELAY_URL = "wss://sync-relay-q7qxcg.fly.dev"
+  RELAY_URL = "wss://sync-relay-q5gzcq.fly.dev"
 
 [mounts]
   source = "relay_data"

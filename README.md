@@ -19,7 +19,7 @@ The repo includes a `fly.toml` and `Dockerfile`. Deploys automatically on push t
 1. Create a persistent volume for SQLite (must match the region in `fly.toml`):
 
 ```bash
-fly volumes create relay_data --size 1 --region ams -a sync-relay-q7qxcg
+fly volumes create relay_data --size 1 --region ams -a sync-relay-q5gzcq
 ```
 
 2. Set secrets:
@@ -29,7 +29,7 @@ fly volumes create relay_data --size 1 --region ams -a sync-relay-q7qxcg
 export ADMIN_TOKEN=$(openssl rand -hex 32)
 echo "Admin token: $ADMIN_TOKEN"
 
-fly secrets set ADMIN_TOKEN=$ADMIN_TOKEN PRIVATE_MODE=true -a sync-relay-q7qxcg
+fly secrets set ADMIN_TOKEN=$ADMIN_TOKEN PRIVATE_MODE=true -a sync-relay-q5gzcq
 ```
 
 3. Push to `master` to trigger the first deploy, or deploy manually:
@@ -41,7 +41,7 @@ fly deploy
 4. Verify:
 
 ```bash
-curl -H "Accept: application/nostr+json" https://sync-relay-q7qxcg.fly.dev
+curl -H "Accept: application/nostr+json" https://sync-relay-q5gzcq.fly.dev
 ```
 
 ## Managing Access
@@ -49,7 +49,7 @@ curl -H "Accept: application/nostr+json" https://sync-relay-q7qxcg.fly.dev
 When `PRIVATE_MODE` is enabled, only allowed pubkeys can connect. Use the admin API to manage the allowlist.
 
 ```bash
-RELAY=https://sync-relay-q7qxcg.fly.dev
+RELAY=https://sync-relay-q5gzcq.fly.dev
 TOKEN=your-admin-token
 
 # Allow a pubkey (permanent)
