@@ -7,7 +7,7 @@ primary_region = "ams"
 [env]
   PORT = "3000"
   DB_PATH = "/data/relay.db"
-  RELAY_URL = "wss://sync-relay-q5gzcq.fly.dev"
+  RELAY_URL = "wss://relay.comet.md"
 
 [mounts]
   source = "relay_data"
