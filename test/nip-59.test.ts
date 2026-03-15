@@ -468,7 +468,7 @@ describe("relay integration - NIP-59", () => {
     ws.close()
   })
 
-  test("replaceable gift wrap produces DELETED change for old version", async () => {
+  test("replaceable gift wrap only emits STORED changes (no DELETED for superseded)", async () => {
     const ws = await connectAuthed(recipientSk)
     const dTag = "note-changes-test"
 
@@ -491,14 +491,18 @@ describe("relay integration - NIP-59", () => {
     ws.send(JSON.stringify(["EVENT", gw2]))
     await waitForMessage(ws)
 
-    // Changes should show DELETED for gw1, STORED for both
+    // Changes should show only STORED entries — no DELETED for superseded gift wraps
     ws.send(JSON.stringify(["CHANGES", "repchanges", { since: 0, kinds: [KIND_GIFT_WRAP], "#p": [recipientPubkey], "#d": [dTag] }]))
-    const msgs = await waitForMessages(ws, 4, 2000)
+    const msgs = await waitForMessages(ws, 3, 2000)
 
     const deleted = msgs.filter((m) => m[0] === "CHANGES" && m[2] === "DELETED")
-    const delEntry = deleted.find((m) => m[4] === gw1.id)
-    expect(delEntry).toBeDefined()
-    expect((delEntry![5] as any).superseded_by).toBe(gw2.id)
+    expect(deleted).toHaveLength(0)
+
+    const stored = msgs.filter((m) => m[0] === "CHANGES" && m[2] === "EVENT")
+    // Only the latest version should be in the STORED changes
+    expect(stored.length).toBeGreaterThanOrEqual(1)
+    const latestStored = stored[stored.length - 1]
+    expect((latestStored[4] as any).content).toBe("v2")
 
     ws.close()
   })

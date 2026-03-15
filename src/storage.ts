@@ -271,10 +271,8 @@ export function initStorage(dbPath: string): Storage {
             deleteById.run(old.id)
           }
           insertEventWithTags(event)
-          for (const old of oldEvents) {
-            const oldTags = extractSingleLetterTags(JSON.parse(old.tags))
-            changes.push(recordChange(old.id, "DELETED", old.kind, old.pubkey, { superseded_by: event.id }, oldTags))
-          }
+          // Only emit STORED for the new version — no DELETED for superseded gift wraps
+          // since clients only need the latest version
           changes.push(recordChange(event.id, "STORED", event.kind, event.pubkey, null, extractSingleLetterTags(event.tags)))
         })
         doReplace()
