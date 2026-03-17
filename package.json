@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun run src/index.tsx",
+    "build:admin": "cd admin-ui && bun run build",
     "build:css": "bunx @tailwindcss/cli -i src/landing/styles.css -o src/public/landing.css --minify",
     "test": "bun test"
   },

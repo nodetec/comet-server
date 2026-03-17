@@ -105,6 +105,12 @@ if (ADMIN_TOKEN) {
     connections,
     adminToken: ADMIN_TOKEN,
   }))
+
+  // Serve admin SPA static assets
+  app.get("/admin/assets/*", serveStatic({ root: "./admin-ui/dist/", rewriteRequestPath: (path) => path.replace("/admin/", "/") }))
+
+  // SPA fallback: any /admin/* route that wasn't handled above serves index.html
+  app.get("/admin/*", serveStatic({ root: "./admin-ui/dist/", path: "index.html" }))
 }
 
 // Start server
