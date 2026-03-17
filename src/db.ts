@@ -10,7 +10,7 @@ export function createDB(url?: string) {
     throw new Error("DATABASE_URL environment variable is required")
   }
   const sql = postgres(connectionString, {
-    max: 10,
+    max: 50,
     idle_timeout: 20,
     connect_timeout: 10,
     onnotice: () => {},
