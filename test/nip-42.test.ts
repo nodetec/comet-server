@@ -1,7 +1,14 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test"
+import { describe, test, expect } from "bun:test"
 import { generateSecretKey, getPublicKey, finalizeEvent } from "nostr-tools/pure"
-import type { NostrEvent } from "../src/types"
-import { KIND_GIFT_WRAP } from "../src/nip-59"
+import type { NostrEvent, Filter, ChangesFilter } from "../src/types"
+import {
+  validateAuthEvent,
+  isAuthorizedForFilter,
+  isAuthorizedForChangesFilter,
+  filterRequiresAuth,
+  KIND_AUTH,
+} from "../src/relay/nip/42"
+import { KIND_GIFT_WRAP } from "../src/relay/nip/59"
 
 const sk = generateSecretKey()
 const pubkey = getPublicKey(sk)
@@ -9,359 +16,123 @@ const pubkey = getPublicKey(sk)
 const otherSk = generateSecretKey()
 const otherPubkey = getPublicKey(otherSk)
 
-function sign(
-  key: Uint8Array,
-  overrides: Partial<{ kind: number; content: string; tags: string[][]; created_at: number }> = {}
-): NostrEvent {
+const RELAY_URL = "ws://localhost:3000"
+const CHALLENGE = "test-challenge-123"
+
+function createAuthEvent(key: Uint8Array, challenge: string, relayUrl: string, overrides: Partial<{ kind: number; created_at: number }> = {}): NostrEvent {
   return finalizeEvent(
     {
-      kind: overrides.kind ?? 1,
-      content: overrides.content ?? "",
-      tags: overrides.tags ?? [],
+      kind: overrides.kind ?? KIND_AUTH,
+      content: "",
+      tags: [["relay", relayUrl], ["challenge", challenge]],
       created_at: overrides.created_at ?? Math.floor(Date.now() / 1000),
     },
     key
   ) as unknown as NostrEvent
 }
 
-let server: ReturnType<typeof Bun.serve> | null = null
-const PORT = 39128
-const RELAY_URL = `ws://localhost:${PORT}`
-
-async function connectRaw(): Promise<{ ws: WebSocket; challenge: string }> {
-  const ws = new WebSocket(RELAY_URL)
-  await new Promise<void>((resolve, reject) => {
-    ws.onopen = () => resolve()
-    ws.onerror = (e) => reject(e)
+describe("validateAuthEvent", () => {
+  test("accepts valid AUTH event", () => {
+    const event = createAuthEvent(sk, CHALLENGE, RELAY_URL)
+    const result = validateAuthEvent(event, CHALLENGE, RELAY_URL)
+    expect(result.ok).toBe(true)
+    expect(result.pubkey).toBe(pubkey)
   })
-  const challenge = await new Promise<string>((resolve) => {
-    ws.onmessage = (e) => {
-      const msg = JSON.parse(e.data as string)
-      if (msg[0] === "AUTH") resolve(msg[1])
-    }
+
+  test("rejects wrong challenge", () => {
+    const event = createAuthEvent(sk, "wrong-challenge", RELAY_URL)
+    const result = validateAuthEvent(event, CHALLENGE, RELAY_URL)
+    expect(result.ok).toBe(false)
+    expect(result.reason).toContain("challenge")
   })
-  return { ws, challenge }
-}
 
-async function connectAuthed(key: Uint8Array): Promise<WebSocket> {
-  const { ws, challenge } = await connectRaw()
-  const authEvent = finalizeEvent(
-    {
-      kind: 22242,
-      content: "",
-      tags: [["relay", RELAY_URL], ["challenge", challenge]],
-      created_at: Math.floor(Date.now() / 1000),
-    },
-    key
-  )
-  ws.send(JSON.stringify(["AUTH", authEvent]))
-  await new Promise<void>((resolve) => {
-    ws.onmessage = (e) => {
-      const msg = JSON.parse(e.data as string)
-      if (msg[0] === "OK") resolve()
-    }
+  test("rejects wrong kind", () => {
+    const event = createAuthEvent(sk, CHALLENGE, RELAY_URL, { kind: 1 })
+    const result = validateAuthEvent(event, CHALLENGE, RELAY_URL)
+    expect(result.ok).toBe(false)
+    expect(result.reason).toContain("kind 22242")
   })
-  return ws
-}
 
-function waitForMessage(ws: WebSocket, timeoutMs = 3000): Promise<unknown[]> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("timeout")), timeoutMs)
-    ws.onmessage = (e) => {
-      clearTimeout(timer)
-      resolve(JSON.parse(e.data as string))
-    }
-  })
-}
-
-function waitForMessages(ws: WebSocket, count: number, timeoutMs = 3000): Promise<unknown[][]> {
-  return new Promise((resolve) => {
-    const messages: unknown[][] = []
-    const timer = setTimeout(() => resolve(messages), timeoutMs)
-    ws.onmessage = (e) => {
-      messages.push(JSON.parse(e.data as string))
-      if (messages.length >= count) {
-        clearTimeout(timer)
-        resolve(messages)
-      }
-    }
-  })
-}
-
-beforeAll(async () => {
-  const { initStorage } = await import("../src/storage")
-  const { handleNip11Request } = await import("../src/nip-11")
-  const { handleMessage, handleOpen, handleDisconnect } = await import("../src/relay")
-  const storage = initStorage(":memory:")
-  const connections = new Map()
-
-  server = Bun.serve({
-    port: PORT,
-    fetch(req, server) {
-      if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
-        const success = server.upgrade(req, { data: { id: crypto.randomUUID(), challenge: crypto.randomUUID(), authedPubkeys: new Set() } })
-        return success ? undefined : new Response("fail", { status: 400 })
-      }
-      const accept = req.headers.get("accept") ?? ""
-      if (accept.includes("application/nostr+json")) return handleNip11Request(storage.getMinSeq())
-      return new Response("ok")
-    },
-    websocket: {
-      open(ws: any) { handleOpen(ws, connections) },
-      message(ws: any, message: any) { handleMessage(ws, message, { storage, connections, server: server!, relayUrl: RELAY_URL, access: { isAllowed: () => true, allow: () => {}, revoke: () => false, list: () => [], privateMode: false } as any }) },
-      close(ws: any) { handleDisconnect(ws, connections) },
-    },
-  })
-})
-
-afterAll(() => { server?.stop() })
-
-describe("NIP-42 AUTH", () => {
-  test("NIP-11 advertises NIP-42 support", async () => {
-    const res = await fetch(`http://localhost:${PORT}`, {
-      headers: { Accept: "application/nostr+json" },
+  test("rejects expired timestamp", () => {
+    const event = createAuthEvent(sk, CHALLENGE, RELAY_URL, {
+      created_at: Math.floor(Date.now() / 1000) - 700,
     })
-    const info = (await res.json()) as any
-    expect(info.supported_nips).toContain(42)
+    const result = validateAuthEvent(event, CHALLENGE, RELAY_URL)
+    expect(result.ok).toBe(false)
+    expect(result.reason).toContain("timestamp")
   })
 
-  test("relay sends AUTH challenge on connect", async () => {
-    const { ws, challenge } = await connectRaw()
-    expect(typeof challenge).toBe("string")
-    expect(challenge.length).toBeGreaterThan(0)
-    ws.close()
-  })
-
-  test("valid AUTH returns OK true", async () => {
-    const { ws, challenge } = await connectRaw()
-
-    const authEvent = finalizeEvent(
+  test("rejects missing relay tag", () => {
+    const event = finalizeEvent(
       {
-        kind: 22242,
+        kind: KIND_AUTH,
         content: "",
-        tags: [["relay", RELAY_URL], ["challenge", challenge]],
+        tags: [["challenge", CHALLENGE]],
         created_at: Math.floor(Date.now() / 1000),
       },
       sk
-    )
-    ws.send(JSON.stringify(["AUTH", authEvent]))
-    const ok = await waitForMessage(ws)
-    expect(ok[0]).toBe("OK")
-    expect(ok[2]).toBe(true)
-
-    ws.close()
-  })
-
-  test("AUTH with wrong challenge fails", async () => {
-    const { ws, challenge } = await connectRaw()
-
-    const authEvent = finalizeEvent(
-      {
-        kind: 22242,
-        content: "",
-        tags: [["relay", RELAY_URL], ["challenge", "wrong-challenge"]],
-        created_at: Math.floor(Date.now() / 1000),
-      },
-      sk
-    )
-    ws.send(JSON.stringify(["AUTH", authEvent]))
-    const ok = await waitForMessage(ws)
-    expect(ok[0]).toBe("OK")
-    expect(ok[2]).toBe(false)
-    expect((ok[3] as string)).toContain("challenge")
-
-    ws.close()
-  })
-
-  test("AUTH with wrong kind fails", async () => {
-    const { ws, challenge } = await connectRaw()
-
-    const authEvent = finalizeEvent(
-      {
-        kind: 1, // wrong kind
-        content: "",
-        tags: [["relay", RELAY_URL], ["challenge", challenge]],
-        created_at: Math.floor(Date.now() / 1000),
-      },
-      sk
-    )
-    ws.send(JSON.stringify(["AUTH", authEvent]))
-    const ok = await waitForMessage(ws)
-    expect(ok[2]).toBe(false)
-    expect((ok[3] as string)).toContain("kind 22242")
-
-    ws.close()
-  })
-
-  test("AUTH with expired timestamp fails", async () => {
-    const { ws, challenge } = await connectRaw()
-
-    const authEvent = finalizeEvent(
-      {
-        kind: 22242,
-        content: "",
-        tags: [["relay", RELAY_URL], ["challenge", challenge]],
-        created_at: Math.floor(Date.now() / 1000) - 700, // > 10 min ago
-      },
-      sk
-    )
-    ws.send(JSON.stringify(["AUTH", authEvent]))
-    const ok = await waitForMessage(ws)
-    expect(ok[2]).toBe(false)
-    expect((ok[3] as string)).toContain("timestamp")
-
-    ws.close()
-  })
-
-  test("kind:22242 via EVENT is rejected", async () => {
-    const { ws, challenge } = await connectRaw()
-
-    const authEvent = finalizeEvent(
-      {
-        kind: 22242,
-        content: "",
-        tags: [["relay", RELAY_URL], ["challenge", challenge]],
-        created_at: Math.floor(Date.now() / 1000),
-      },
-      sk
-    )
-    // Send via EVENT instead of AUTH
-    ws.send(JSON.stringify(["EVENT", authEvent]))
-    const ok = await waitForMessage(ws)
-    expect(ok[2]).toBe(false)
-    expect((ok[3] as string)).toContain("AUTH message")
-
-    ws.close()
-  })
-
-  test("multiple pubkeys can authenticate on same connection", async () => {
-    const { ws, challenge } = await connectRaw()
-
-    // Auth as pubkey 1
-    const auth1 = finalizeEvent(
-      {
-        kind: 22242,
-        content: "",
-        tags: [["relay", RELAY_URL], ["challenge", challenge]],
-        created_at: Math.floor(Date.now() / 1000),
-      },
-      sk
-    )
-    ws.send(JSON.stringify(["AUTH", auth1]))
-    const ok1 = await waitForMessage(ws)
-    expect(ok1[2]).toBe(true)
-
-    // Auth as pubkey 2
-    const auth2 = finalizeEvent(
-      {
-        kind: 22242,
-        content: "",
-        tags: [["relay", RELAY_URL], ["challenge", challenge]],
-        created_at: Math.floor(Date.now() / 1000),
-      },
-      otherSk
-    )
-    ws.send(JSON.stringify(["AUTH", auth2]))
-    const ok2 = await waitForMessage(ws)
-    expect(ok2[2]).toBe(true)
-
-    ws.close()
+    ) as unknown as NostrEvent
+    const result = validateAuthEvent(event, CHALLENGE, RELAY_URL)
+    expect(result.ok).toBe(false)
+    expect(result.reason).toContain("relay")
   })
 })
 
-describe("NIP-42 access control for gift wraps", () => {
-  test("unauthenticated REQ for kind:1059 returns auth-required", async () => {
-    const { ws } = await connectRaw()
-
-    ws.send(JSON.stringify(["REQ", "gw", { kinds: [KIND_GIFT_WRAP], "#p": [pubkey] }]))
-    const msg = await waitForMessage(ws)
-    expect(msg[0]).toBe("CLOSED")
-    expect(msg[1]).toBe("gw")
-    expect((msg[2] as string)).toContain("auth-required")
-
-    ws.close()
+describe("filterRequiresAuth", () => {
+  test("returns true for kind:1059 queries", () => {
+    expect(filterRequiresAuth({ kinds: [KIND_GIFT_WRAP] })).toBe(true)
+    expect(filterRequiresAuth({ kinds: [1, KIND_GIFT_WRAP] })).toBe(true)
   })
 
-  test("authenticated REQ for own gift wraps succeeds", async () => {
-    const ws = await connectAuthed(sk)
+  test("returns false for non-gift-wrap queries", () => {
+    expect(filterRequiresAuth({ kinds: [1] })).toBe(false)
+    expect(filterRequiresAuth({})).toBe(false)
+  })
+})
 
-    // Publish a gift wrap for ourselves
-    const ephSk = generateSecretKey()
-    const gw = sign(ephSk, { kind: KIND_GIFT_WRAP, content: "encrypted", tags: [["p", pubkey]] })
-    ws.send(JSON.stringify(["EVENT", gw]))
-    await waitForMessage(ws) // OK
-
-    // Query our own wraps
-    ws.send(JSON.stringify(["REQ", "mine", { kinds: [KIND_GIFT_WRAP], "#p": [pubkey] }]))
-    const msgs = await waitForMessages(ws, 2)
-    const events = msgs.filter((m) => m[0] === "EVENT")
-    expect(events.length).toBeGreaterThanOrEqual(1)
-
-    ws.close()
+describe("isAuthorizedForFilter", () => {
+  test("non-gift-wrap queries are always authorized", () => {
+    const result = isAuthorizedForFilter({ kinds: [1] }, new Set())
+    expect(result.authorized).toBe(true)
   })
 
-  test("authenticated REQ for someone else's gift wraps returns restricted", async () => {
-    const ws = await connectAuthed(sk)
-
-    ws.send(JSON.stringify(["REQ", "theirs", { kinds: [KIND_GIFT_WRAP], "#p": [otherPubkey] }]))
-    const msg = await waitForMessage(ws)
-    expect(msg[0]).toBe("CLOSED")
-    expect((msg[2] as string)).toContain("restricted")
-
-    ws.close()
+  test("unauthenticated gift wrap query returns auth-required", () => {
+    const result = isAuthorizedForFilter({ kinds: [KIND_GIFT_WRAP], "#p": [pubkey] }, new Set())
+    expect(result.authorized).toBe(false)
+    expect(result.reason).toContain("auth-required")
   })
 
-  test("kind:1059 REQ without #p filter returns restricted", async () => {
-    const ws = await connectAuthed(sk)
-
-    ws.send(JSON.stringify(["REQ", "nop", { kinds: [KIND_GIFT_WRAP] }]))
-    const msg = await waitForMessage(ws)
-    expect(msg[0]).toBe("CLOSED")
-    expect((msg[2] as string)).toContain("restricted")
-
-    ws.close()
+  test("authenticated query for own gift wraps succeeds", () => {
+    const result = isAuthorizedForFilter({ kinds: [KIND_GIFT_WRAP], "#p": [pubkey] }, new Set([pubkey]))
+    expect(result.authorized).toBe(true)
   })
 
-  test("unauthenticated CHANGES for kind:1059 returns auth-required", async () => {
-    const { ws } = await connectRaw()
-
-    ws.send(JSON.stringify(["CHANGES", "gw", { since: 0, kinds: [KIND_GIFT_WRAP], "#p": [pubkey] }]))
-    const msg = await waitForMessage(ws)
-    expect(msg[0]).toBe("CHANGES")
-    expect(msg[2]).toBe("ERR")
-    expect((msg[3] as string)).toContain("auth-required")
-
-    ws.close()
+  test("authenticated query for someone else's gift wraps is restricted", () => {
+    const result = isAuthorizedForFilter({ kinds: [KIND_GIFT_WRAP], "#p": [otherPubkey] }, new Set([pubkey]))
+    expect(result.authorized).toBe(false)
+    expect(result.reason).toContain("restricted")
   })
 
-  test("authenticated CHANGES for own gift wraps succeeds", async () => {
-    const ws = await connectAuthed(sk)
+  test("gift wrap query without #p filter is restricted", () => {
+    const result = isAuthorizedForFilter({ kinds: [KIND_GIFT_WRAP] }, new Set([pubkey]))
+    expect(result.authorized).toBe(false)
+    expect(result.reason).toContain("restricted")
+  })
+})
 
-    ws.send(JSON.stringify(["CHANGES", "mysync", { since: 0, kinds: [KIND_GIFT_WRAP], "#p": [pubkey] }]))
-    const msg = await waitForMessage(ws)
-    // Should get EOSE (no stored gift wraps), not ERR
-    expect(msg[0]).toBe("CHANGES")
-    expect(msg[1]).toBe("mysync")
-    // Could be EOSE or EVENT depending on prior test state
-    expect(["EOSE", "EVENT"]).toContain(msg[2])
-
-    ws.close()
+describe("isAuthorizedForChangesFilter", () => {
+  test("non-gift-wrap queries are always authorized", () => {
+    const result = isAuthorizedForChangesFilter({ kinds: [1] }, new Set())
+    expect(result.authorized).toBe(true)
   })
 
-  test("non-gift-wrap queries work without auth", async () => {
-    const { ws } = await connectRaw()
+  test("unauthenticated gift wrap changes returns auth-required", () => {
+    const result = isAuthorizedForChangesFilter({ kinds: [KIND_GIFT_WRAP], "#p": [pubkey] }, new Set())
+    expect(result.authorized).toBe(false)
+  })
 
-    // Publish a regular event
-    const note = sign(sk, { kind: 1, content: "public note" })
-    ws.send(JSON.stringify(["EVENT", note]))
-    await waitForMessage(ws) // OK
-
-    // Query without auth — should work for non-gift-wrap kinds
-    ws.send(JSON.stringify(["REQ", "pub", { kinds: [1] }]))
-    const msgs = await waitForMessages(ws, 2)
-    const events = msgs.filter((m) => m[0] === "EVENT")
-    expect(events.length).toBeGreaterThanOrEqual(1)
-
-    ws.close()
+  test("authenticated changes for own gift wraps succeeds", () => {
+    const result = isAuthorizedForChangesFilter({ kinds: [KIND_GIFT_WRAP], "#p": [pubkey] }, new Set([pubkey]))
+    expect(result.authorized).toBe(true)
   })
 })

@@ -1,4 +1,4 @@
-import type { NostrEvent } from "./types"
+import type { NostrEvent } from "../../types"
 
 export const KIND_LONG_FORM = 30023
 export const KIND_LONG_FORM_DRAFT = 30024

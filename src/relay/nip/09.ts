@@ -1,4 +1,4 @@
-import type { NostrEvent } from "./types"
+import type { NostrEvent } from "../../types"
 
 export const KIND_DELETION = 5
 

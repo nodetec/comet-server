@@ -1,7 +1,6 @@
-import type { ServerWebSocket } from "bun"
-import type { NostrEvent, ChangesFilter, ChangeEntry } from "./types"
-import type { Storage } from "./storage"
-import type { WSData } from "./subscription"
+import type { NostrEvent, ChangesFilter, ChangeEntry } from "../../types"
+import type { Storage } from "../storage"
+import type { ConnectionManager } from "../../connections"
 
 const MAX_CHANGES_SUBS_PER_CONNECTION = 10
 
@@ -12,10 +11,6 @@ type ChangesSubscription = {
 
 // Per-connection changes subscription state
 const changesSubs = new Map<string, Map<string, ChangesSubscription>>()
-
-function send(ws: ServerWebSocket<WSData>, msg: unknown) {
-  ws.send(JSON.stringify(msg))
-}
 
 export function isValidChangesFilter(f: unknown): f is ChangesFilter {
   if (!f || typeof f !== "object") return false
@@ -44,29 +39,28 @@ export function isValidChangesFilter(f: unknown): f is ChangesFilter {
   return true
 }
 
-export function handleChangesRequest(
-  ws: ServerWebSocket<WSData>,
+export async function handleChangesRequest(
+  connId: string,
   subId: string,
   filter: ChangesFilter,
-  storage: Storage
-) {
-  const connId = ws.data.id
-
+  storage: Storage,
+  connections: ConnectionManager
+): Promise<void> {
   if (!changesSubs.has(connId)) {
     changesSubs.set(connId, new Map())
   }
   const subs = changesSubs.get(connId)!
 
   if (!subs.has(subId) && subs.size >= MAX_CHANGES_SUBS_PER_CONNECTION) {
-    send(ws, ["CHANGES", subId, "ERR", "too many subscriptions"])
+    connections.sendJSON(connId, ["CHANGES", subId, "ERR", "too many subscriptions"])
     return
   }
 
   // Check if checkpoint is too old
-  const minSeq = storage.getMinSeq()
+  const minSeq = await storage.getMinSeq()
   const since = filter.since ?? 0
   if (minSeq > 0 && since > 0 && since < minSeq) {
-    send(ws, ["CHANGES", subId, "ERR", `checkpoint too old: min_seq is ${minSeq}`])
+    connections.sendJSON(connId, ["CHANGES", subId, "ERR", `checkpoint too old: min_seq is ${minSeq}`])
     return
   }
 
@@ -75,11 +69,11 @@ export function handleChangesRequest(
   subs.set(subId, { filter, live: isLive })
 
   // Query historical changes and batch-fetch events for STORED entries
-  const changes = storage.queryChanges(filter)
+  const changes = await storage.queryChanges(filter)
   const storedIds = changes.filter((c) => c.type === "STORED").map((c) => c.eventId)
   const eventsMap = new Map<string, NostrEvent>()
   if (storedIds.length > 0) {
-    const events = storage.queryEvents([{ ids: storedIds }])
+    const events = await storage.queryEvents([{ ids: storedIds }])
     for (const event of events) {
       eventsMap.set(event.id, event)
     }
@@ -88,16 +82,16 @@ export function handleChangesRequest(
     if (change.type === "STORED") {
       const event = eventsMap.get(change.eventId)
       if (event) {
-        send(ws, ["CHANGES", subId, "EVENT", change.seq, event])
+        connections.sendJSON(connId, ["CHANGES", subId, "EVENT", change.seq, event])
       }
     } else {
-      send(ws, ["CHANGES", subId, "DELETED", change.seq, change.eventId, change.reason ?? {}])
+      connections.sendJSON(connId, ["CHANGES", subId, "DELETED", change.seq, change.eventId, change.reason ?? {}])
     }
   }
 
   // Send EOSE with the global max seq
-  const maxSeq = storage.getMaxSeq()
-  send(ws, ["CHANGES", subId, "EOSE", maxSeq])
+  const maxSeq = await storage.getMaxSeq()
+  connections.sendJSON(connId, ["CHANGES", subId, "EOSE", maxSeq])
 
   // If not live, remove the subscription after EOSE
   if (!isLive) {
@@ -132,12 +126,12 @@ function matchChangesFilter(change: ChangeEntry, filter: ChangesFilter): boolean
  * Broadcast new changelog entries to live CHANGES subscribers.
  * Pass `event` when available (from handleEvent) to avoid a DB round-trip for STORED entries.
  */
-export function broadcastChanges(
+export async function broadcastChanges(
   changes: ChangeEntry[],
   storage: Storage,
-  allConnections: Map<string, ServerWebSocket<WSData>>,
+  connections: ConnectionManager,
   event?: NostrEvent
-) {
+): Promise<void> {
   if (changes.length === 0) return
 
   // Build a lookup for STORED events — use the passed event if available, else fetch
@@ -147,8 +141,8 @@ export function broadcastChanges(
   }
 
   for (const [connId, subs] of changesSubs) {
-    const ws = allConnections.get(connId)
-    if (!ws) {
+    const conn = connections.get(connId)
+    if (!conn) {
       changesSubs.delete(connId)
       continue
     }
@@ -159,25 +153,24 @@ export function broadcastChanges(
         if (change.type === "STORED") {
           let ev = eventsMap.get(change.eventId)
           if (!ev) {
-            const fetched = storage.queryEvents([{ ids: [change.eventId] }])
+            const fetched = await storage.queryEvents([{ ids: [change.eventId] }])
             if (fetched.length > 0) {
               ev = fetched[0]
               eventsMap.set(ev.id, ev)
             }
           }
           if (ev) {
-            send(ws, ["CHANGES", subId, "EVENT", change.seq, ev])
+            connections.sendJSON(connId, ["CHANGES", subId, "EVENT", change.seq, ev])
           }
         } else {
-          send(ws, ["CHANGES", subId, "DELETED", change.seq, change.eventId, change.reason ?? {}])
+          connections.sendJSON(connId, ["CHANGES", subId, "DELETED", change.seq, change.eventId, change.reason ?? {}])
         }
       }
     }
   }
 }
 
-export function removeChangesSubscription(ws: ServerWebSocket<WSData>, subId: string) {
-  const connId = ws.data.id
+export function removeChangesSubscription(connId: string, subId: string): void {
   const subs = changesSubs.get(connId)
   if (subs) {
     subs.delete(subId)
@@ -187,6 +180,6 @@ export function removeChangesSubscription(ws: ServerWebSocket<WSData>, subId: st
   }
 }
 
-export function removeAllChangesSubscriptions(ws: ServerWebSocket<WSData>) {
-  changesSubs.delete(ws.data.id)
+export function removeAllChangesSubscriptions(connId: string): void {
+  changesSubs.delete(connId)
 }

@@ -1,4 +1,4 @@
-import type { NostrEvent } from "./types"
+import type { NostrEvent } from "../../types"
 
 export const KIND_GIFT_WRAP = 1059
 export const KIND_SEAL = 13

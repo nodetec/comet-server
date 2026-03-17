@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test"
-import { matchFilter, matchFilters } from "../src/filter"
+import { matchFilter, matchFilters } from "../src/relay/filter"
 import type { NostrEvent } from "../src/types"
 
 const baseEvent: NostrEvent = {

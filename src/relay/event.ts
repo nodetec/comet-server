@@ -1,5 +1,5 @@
 import { verifyEvent, validateEvent, getEventHash } from "nostr-tools/pure"
-import type { NostrEvent } from "./types"
+import type { NostrEvent } from "../types"
 
 export type KindCategory = "regular" | "replaceable" | "ephemeral" | "addressable"
 

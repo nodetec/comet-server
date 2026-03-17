@@ -1,7 +1,6 @@
-import type { NostrEvent, Filter, ChangesFilter } from "./types"
-import type { WSData } from "./subscription"
-import { validateAndVerifyEvent } from "./event"
-import { KIND_GIFT_WRAP } from "./nip-59"
+import type { NostrEvent, Filter, ChangesFilter } from "../../types"
+import { validateAndVerifyEvent } from "../event"
+import { KIND_GIFT_WRAP } from "./59"
 
 export const KIND_AUTH = 22242
 

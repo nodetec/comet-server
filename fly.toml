@@ -1,17 +1,12 @@
-app = "sync-relay-q5gzcq"
-primary_region = "ams"
+app = "comet-server"
+primary_region = "ewr"
 
 [build]
   dockerfile = "Dockerfile"
 
 [env]
   PORT = "3000"
-  DB_PATH = "/data/relay.db"
   RELAY_URL = "wss://relay.comet.md"
-
-[mounts]
-  source = "relay_data"
-  destination = "/data"
 
 [http_service]
   internal_port = 3000

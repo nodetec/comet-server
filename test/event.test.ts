@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test"
 import { generateSecretKey, finalizeEvent } from "nostr-tools/pure"
-import { validateEventStructure, validateAndVerifyEvent, getEventKindCategory } from "../src/event"
+import { validateEventStructure, validateAndVerifyEvent, getEventKindCategory } from "../src/relay/event"
 
 function createSignedEvent(overrides: Partial<{ kind: number; content: string; tags: string[][] }> = {}) {
   const sk = generateSecretKey()

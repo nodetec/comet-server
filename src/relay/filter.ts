@@ -1,4 +1,4 @@
-import type { NostrEvent, Filter } from "./types"
+import type { NostrEvent, Filter } from "../types"
 
 /**
  * Check if an event matches a single filter.
