@@ -114,12 +114,12 @@ export function EventsPage() {
         </p>
       </div>
 
-      <div className="flex gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row">
         <Input
           placeholder="Filter by kind..."
           value={kindFilter}
           onChange={(e) => setKindFilter(e.target.value)}
-          className="w-40"
+          className="sm:w-40"
         />
         <Input
           placeholder="Filter by pubkey (64-char hex)..."

@@ -71,7 +71,7 @@ export function DataTable<TData, TValue>({
 
   return (
     <div className="space-y-4">
-      <div className="overflow-hidden rounded-md border">
+      <div className="overflow-x-auto border-y md:overflow-hidden md:rounded-md md:border-x">
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
@@ -119,7 +119,7 @@ export function DataTable<TData, TValue>({
 
       {/* Pagination controls */}
       {totalRows > 0 && (
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-between">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <span>Rows per page</span>
             <Select

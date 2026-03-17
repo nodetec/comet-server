@@ -289,7 +289,7 @@ export function AllowlistPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleAdd} className="flex gap-2">
+          <form onSubmit={handleAdd} className="flex flex-col gap-2 sm:flex-row">
             <Input
               placeholder="npub or hex pubkey"
               value={newPubkey}
