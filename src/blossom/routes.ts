@@ -4,20 +4,6 @@ import { validateBlossomAuth } from "./auth"
 import * as blobDb from "./db"
 import * as s3 from "./s3"
 
-const MIME_TO_EXT: Record<string, string> = {
-  "image/png": ".png",
-  "image/jpeg": ".jpg",
-  "image/gif": ".gif",
-  "image/webp": ".webp",
-  "image/svg+xml": ".svg",
-  "application/pdf": ".pdf",
-  "text/plain": ".txt",
-}
-
-function mimeToExt(contentType: string): string {
-  return MIME_TO_EXT[contentType] ?? ".bin"
-}
-
 /** Extract the 64-char hex sha256 from a path param that may have a file extension (e.g. "abc123.png"). */
 function parseSha256(param: string): string | null {
   const sha256 = param.replace(/\.[^.]+$/, "")
@@ -27,26 +13,16 @@ function parseSha256(param: string): string | null {
 export function blossomRoutes(db: DB): Hono {
   const app = new Hono()
 
-  // GET /:sha256 or /:sha256.ext — serve blob from S3
+  // GET /:sha256 or /:sha256.ext — redirect to Tigris CDN
   app.get("/:blob{[a-f0-9]{64}.*}", async (c) => {
     const sha256 = parseSha256(c.req.param("blob"))
     if (!sha256) return c.json({ error: "invalid hash" }, 400)
-    const obj = await s3.getBlob(sha256)
-    if (!obj) {
+    const blob = await blobDb.getBlob(db, sha256)
+    if (!blob) {
       console.log(`[BLOSSOM] GET ${sha256.slice(0, 8)}… not found`)
       return c.json({ error: "not found" }, 404)
     }
-    const headers: Record<string, string> = {
-      "Content-Type": obj.contentType,
-      "Content-Length": String(obj.data.byteLength),
-      "Cache-Control": "public, max-age=31536000, immutable",
-    }
-    if (obj.contentType !== "application/octet-stream") {
-      const ext = mimeToExt(obj.contentType)
-      headers["Content-Disposition"] = `inline; filename="${sha256.slice(0, 12)}${ext}"`
-    }
-    console.log(`[BLOSSOM] GET ${sha256.slice(0, 8)}… → ${obj.data.byteLength} bytes`)
-    return c.body(obj.data as Uint8Array<ArrayBuffer>, 200, headers)
+    return c.redirect(s3.getPublicUrl(sha256), 302)
   })
 
   // HEAD /:sha256 or /:sha256.ext — return metadata headers
