@@ -1,12 +1,14 @@
 import {
   flexRender,
   getCoreRowModel,
+  getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
   type ColumnDef,
   type SortingState,
 } from "@tanstack/react-table"
 import { useState } from "react"
+import { ChevronLeft, ChevronRight } from "lucide-react"
 import {
   Table,
   TableBody,
@@ -16,10 +18,20 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[]
   data: TData[]
+  defaultPageSize?: number
   emptyMessage?: string
   hasNextPage?: boolean
   isFetchingNextPage?: boolean
@@ -29,24 +41,36 @@ interface DataTableProps<TData, TValue> {
 export function DataTable<TData, TValue>({
   columns,
   data,
+  defaultPageSize = 10,
   emptyMessage = "No results.",
   hasNextPage,
   isFetchingNextPage,
   onLoadMore,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = useState<SortingState>([])
+  const [pagination, setPagination] = useState({
+    pageIndex: 0,
+    pageSize: defaultPageSize,
+  })
 
   const table = useReactTable({
     data,
     columns,
     onSortingChange: setSorting,
+    onPaginationChange: setPagination,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    state: { sorting },
+    getPaginationRowModel: getPaginationRowModel(),
+    state: { sorting, pagination },
   })
 
+  const pageCount = table.getPageCount()
+  const currentPage = table.getState().pagination.pageIndex
+  const totalRows = table.getFilteredRowModel().rows.length
+  const isLastClientPage = !table.getCanNextPage()
+
   return (
-    <div>
+    <div className="space-y-4">
       <div className="overflow-hidden rounded-md border">
         <Table>
           <TableHeader>
@@ -92,15 +116,73 @@ export function DataTable<TData, TValue>({
           </TableBody>
         </Table>
       </div>
-      {hasNextPage && (
-        <div className="mt-4 flex justify-center">
-          <Button
-            variant="outline"
-            onClick={onLoadMore}
-            disabled={isFetchingNextPage}
-          >
-            {isFetchingNextPage ? "Loading..." : "Load more"}
-          </Button>
+
+      {/* Pagination controls */}
+      {totalRows > 0 && (
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span>Rows per page</span>
+            <Select
+              value={String(pagination.pageSize)}
+              onValueChange={(value) => {
+                table.setPageSize(Number(value))
+                table.setPageIndex(0)
+              }}
+            >
+              <SelectTrigger className="h-8 w-[70px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PAGE_SIZE_OPTIONS.map((size) => (
+                  <SelectItem key={size} value={String(size)}>
+                    {size}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-muted-foreground">
+              Page {currentPage + 1} of {pageCount || 1}
+              {hasNextPage ? "+" : ""}
+              {" · "}
+              {totalRows} row{totalRows !== 1 ? "s" : ""}
+              {hasNextPage ? "+" : ""}
+            </span>
+            <div className="flex gap-1">
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => table.previousPage()}
+                disabled={!table.getCanPreviousPage()}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              {isLastClientPage && hasNextPage ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8"
+                  onClick={onLoadMore}
+                  disabled={isFetchingNextPage}
+                >
+                  {isFetchingNextPage ? "Loading..." : "Load more"}
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => table.nextPage()}
+                  disabled={!table.getCanNextPage()}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
