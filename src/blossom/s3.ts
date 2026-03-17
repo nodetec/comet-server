@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3"
+import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3"
 
 let client: S3Client | null = null
 let bucketName: string = ""
@@ -30,6 +30,22 @@ export async function uploadBlob(sha256: string, data: Uint8Array, contentType?:
     Body: data,
     ContentType: contentType || "application/octet-stream",
   }))
+}
+
+export async function getBlob(sha256: string): Promise<{ data: Uint8Array; contentType: string } | null> {
+  if (!client) throw new Error("S3 client not initialized")
+  try {
+    const res = await client.send(new GetObjectCommand({
+      Bucket: bucketName,
+      Key: sha256,
+    }))
+    if (!res.Body) return null
+    const bytes = await res.Body.transformToByteArray()
+    return { data: bytes, contentType: res.ContentType || "application/octet-stream" }
+  } catch (e: unknown) {
+    if ((e as { name?: string }).name === "NoSuchKey") return null
+    throw e
+  }
 }
 
 export async function deleteBlob(sha256: string): Promise<void> {

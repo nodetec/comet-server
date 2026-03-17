@@ -13,17 +13,21 @@ function parseSha256(param: string): string | null {
 export function blossomRoutes(db: DB): Hono {
   const app = new Hono()
 
-  // GET /:sha256 or /:sha256.ext — redirect to public blob URL
+  // GET /:sha256 or /:sha256.ext — serve blob from S3
   app.get("/:blob{[a-f0-9]{64}.*}", async (c) => {
     const sha256 = parseSha256(c.req.param("blob"))
     if (!sha256) return c.json({ error: "invalid hash" }, 400)
-    const blob = await blobDb.getBlob(db, sha256)
-    if (!blob) {
+    const obj = await s3.getBlob(sha256)
+    if (!obj) {
       console.log(`[BLOSSOM] GET ${sha256.slice(0, 8)}… not found`)
       return c.json({ error: "not found" }, 404)
     }
-    console.log(`[BLOSSOM] GET ${sha256.slice(0, 8)}… → redirect`)
-    return c.redirect(s3.getPublicUrl(sha256), 302)
+    console.log(`[BLOSSOM] GET ${sha256.slice(0, 8)}… → ${obj.data.byteLength} bytes`)
+    return c.body(obj.data as Uint8Array<ArrayBuffer>, 200, {
+      "Content-Type": obj.contentType,
+      "Content-Length": String(obj.data.byteLength),
+      "Cache-Control": "public, max-age=31536000, immutable",
+    })
   })
 
   // HEAD /:sha256 or /:sha256.ext — return metadata headers
