@@ -51,9 +51,28 @@ const relayDeps: RelayDeps = {
   access,
 }
 
-// Root route: WebSocket upgrade or NIP-11
-app.get("/", async (c, next) => {
-  // NIP-11 relay info document
+// WebSocket upgrade on root and /ws
+const wsHandler = upgradeWebSocket(() => {
+  const connId = crypto.randomUUID()
+  const challenge = crypto.randomUUID()
+  return {
+    onOpen: (_evt, ws) => {
+      connections.add(connId, challenge, ws)
+      connections.sendJSON(connId, ["AUTH", challenge])
+    },
+    onMessage: async (evt) => {
+      await handleMessage(connId, evt.data as string, relayDeps)
+    },
+    onClose: () => {
+      handleDisconnect(connId, relayDeps)
+    },
+  }
+})
+app.get("/ws", wsHandler)
+app.get("/", wsHandler)
+
+// NIP-11 and fallback (only reached for non-upgrade requests)
+app.get("/", async (c) => {
   const accept = c.req.header("Accept") ?? ""
   if (accept.includes("application/nostr+json")) {
     const minSeq = await storage.getMinSeq()
@@ -64,54 +83,8 @@ app.get("/", async (c, next) => {
       "Access-Control-Allow-Headers": "Accept",
     })
   }
-
-  // Check for WebSocket upgrade (handled by the ws route below)
   return c.text("Use a Nostr client to connect.", 200)
 })
-
-// WebSocket route
-app.get(
-  "/ws",
-  upgradeWebSocket((c) => {
-    const connId = crypto.randomUUID()
-    const challenge = crypto.randomUUID()
-
-    return {
-      onOpen: (_evt, ws) => {
-        connections.add(connId, challenge, ws)
-        connections.sendJSON(connId, ["AUTH", challenge])
-      },
-      onMessage: async (evt) => {
-        await handleMessage(connId, evt.data as string, relayDeps)
-      },
-      onClose: () => {
-        handleDisconnect(connId, relayDeps)
-      },
-    }
-  })
-)
-
-// Also support WebSocket upgrade on root path
-app.get(
-  "/",
-  upgradeWebSocket((c) => {
-    const connId = crypto.randomUUID()
-    const challenge = crypto.randomUUID()
-
-    return {
-      onOpen: (_evt, ws) => {
-        connections.add(connId, challenge, ws)
-        connections.sendJSON(connId, ["AUTH", challenge])
-      },
-      onMessage: async (evt) => {
-        await handleMessage(connId, evt.data as string, relayDeps)
-      },
-      onClose: () => {
-        handleDisconnect(connId, relayDeps)
-      },
-    }
-  })
-)
 
 // Blossom blob routes
 app.route("/", blossomRoutes(db))
