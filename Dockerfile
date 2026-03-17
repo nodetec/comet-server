@@ -4,6 +4,7 @@ WORKDIR /app
 COPY package.json bun.lock* ./
 RUN bun install --production
 COPY src/ src/
+COPY drizzle/ drizzle/
 COPY tsconfig.json ./
 
 EXPOSE 3000
