@@ -4,12 +4,19 @@ import { validateBlossomAuth } from "./auth"
 import * as blobDb from "./db"
 import * as s3 from "./s3"
 
+/** Extract the 64-char hex sha256 from a path param that may have a file extension (e.g. "abc123.png"). */
+function parseSha256(param: string): string | null {
+  const sha256 = param.replace(/\.[^.]+$/, "")
+  return /^[a-f0-9]{64}$/.test(sha256) ? sha256 : null
+}
+
 export function blossomRoutes(db: DB): Hono {
   const app = new Hono()
 
-  // GET /:sha256 — redirect to public blob URL
-  app.get("/:sha256{[a-f0-9]{64}}", async (c) => {
-    const sha256 = c.req.param("sha256")
+  // GET /:sha256 or /:sha256.ext — redirect to public blob URL
+  app.get("/:blob{[a-f0-9]{64}.*}", async (c) => {
+    const sha256 = parseSha256(c.req.param("blob"))
+    if (!sha256) return c.json({ error: "invalid hash" }, 400)
     const blob = await blobDb.getBlob(db, sha256)
     if (!blob) {
       return c.json({ error: "not found" }, 404)
@@ -17,9 +24,10 @@ export function blossomRoutes(db: DB): Hono {
     return c.redirect(s3.getPublicUrl(sha256), 302)
   })
 
-  // HEAD /:sha256 — return metadata headers
-  app.on("HEAD", "/:sha256{[a-f0-9]{64}}", async (c) => {
-    const sha256 = c.req.param("sha256")
+  // HEAD /:sha256 or /:sha256.ext — return metadata headers
+  app.on("HEAD", "/:blob{[a-f0-9]{64}.*}", async (c) => {
+    const sha256 = parseSha256(c.req.param("blob"))
+    if (!sha256) return c.body(null, 400)
     const blob = await blobDb.getBlob(db, sha256)
     if (!blob) {
       return c.body(null, 404)
@@ -69,8 +77,9 @@ export function blossomRoutes(db: DB): Hono {
   })
 
   // DELETE /:sha256 — delete a blob (remove owner, cleanup if no owners remain)
-  app.delete("/:sha256{[a-f0-9]{64}}", async (c) => {
-    const sha256 = c.req.param("sha256")
+  app.delete("/:blob{[a-f0-9]{64}.*}", async (c) => {
+    const sha256 = parseSha256(c.req.param("blob"))
+    if (!sha256) return c.json({ error: "invalid hash" }, 400)
     const auth = validateBlossomAuth(c.req.header("Authorization"), "delete", { sha256 })
     if (!auth.ok) {
       return c.json({ error: auth.reason }, 401)
