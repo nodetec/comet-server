@@ -48,10 +48,17 @@ export function fetchStats() {
 export type AllowedPubkey = {
   pubkey: string
   expires_at: number | null
+  storage_limit_bytes: number | null
+  storage_used_bytes: number
+}
+
+export type AllowlistResponse = {
+  default_storage_limit_bytes: number
+  pubkeys: AllowedPubkey[]
 }
 
 export function fetchAllowlist() {
-  return request<{ pubkeys: AllowedPubkey[] }>("/allow")
+  return request<AllowlistResponse>("/allow")
 }
 
 export function addPubkey(pubkey: string, expires_at?: number | null) {
@@ -67,12 +74,20 @@ export function revokePubkey(pubkey: string) {
   })
 }
 
+export function setStorageLimit(pubkey: string, storage_limit_bytes: number | null) {
+  return request<{ pubkey: string }>(`/allow/${pubkey}/storage-limit`, {
+    method: "PATCH",
+    body: JSON.stringify({ storage_limit_bytes }),
+  })
+}
+
 // Blobs
 export type BlobEntry = {
   sha256: string
   size: number
   type: string | null
   uploaded_at: string
+  owners: string[]
 }
 
 export function fetchBlobs() {
@@ -100,6 +115,47 @@ export function fetchEvents(params?: { kind?: number; pubkey?: string }) {
   if (params?.pubkey) search.set("pubkey", params.pubkey)
   const qs = search.toString()
   return request<{ events: EventEntry[] }>(`/events${qs ? `?${qs}` : ""}`)
+}
+
+// Invite Codes
+export type InviteCode = {
+  id: number
+  code: string
+  max_uses: number
+  use_count: number
+  expires_at: number | null
+  revoked: boolean
+  created_at: number
+}
+
+export function fetchInviteCodes() {
+  return request<{ invite_codes: InviteCode[] }>("/invite-codes")
+}
+
+export function createInviteCode(params?: { max_uses?: number; expires_at?: number | null }) {
+  return request<InviteCode>("/invite-codes", {
+    method: "POST",
+    body: JSON.stringify(params ?? {}),
+  })
+}
+
+export function revokeInviteCode(id: number) {
+  return request<{ revoked: boolean }>(`/invite-codes/${id}`, {
+    method: "DELETE",
+  })
+}
+
+// Users
+export type UserEntry = {
+  pubkey: string
+  storage_used_bytes: number
+  storage_limit_bytes: number | null
+  blob_count: number
+  event_count: number
+}
+
+export function fetchUsers() {
+  return request<{ users: UserEntry[]; default_storage_limit_bytes: number }>("/users")
 }
 
 // Connections

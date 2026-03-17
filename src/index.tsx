@@ -93,6 +93,23 @@ app.get("/", async (c) => {
   return c.html(<LandingPage release={release} />)
 })
 
+// Invite code redemption (public, no auth required)
+app.post("/invite/redeem", async (c) => {
+  const body = await c.req.json<{ code?: string; pubkey?: string }>()
+  if (!body.pubkey || !/^[a-f0-9]{64}$/.test(body.pubkey)) {
+    return c.json({ error: "invalid pubkey: must be 64-char hex" }, 400)
+  }
+  if (!body.code || typeof body.code !== "string") {
+    return c.json({ error: "invite code is required" }, 400)
+  }
+  const result = await access.registerWithInviteCode(body.pubkey, body.code.trim().toLowerCase())
+  if (!result.ok) {
+    const status = result.error === "pubkey already registered" ? 409 : 400
+    return c.json({ error: result.error }, status)
+  }
+  return c.json({ ok: true })
+})
+
 // Blossom blob routes
 app.route("/", blossomRoutes(db))
 

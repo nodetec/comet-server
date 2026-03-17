@@ -1,20 +1,30 @@
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import type { DB } from "./db"
-import { allowedPubkeys } from "./schema"
+import { users, inviteCodes } from "./schema"
 
 export interface AccessControl {
   isAllowed(pubkey: string): boolean
-  allow(pubkey: string, expiresAt: number | null): Promise<void>
+  allow(pubkey: string, expiresAt: number | null, storageLimitBytes?: number | null): Promise<void>
   revoke(pubkey: string): Promise<boolean>
-  list(): Promise<Array<{ pubkey: string; expires_at: number | null }>>
+  list(): Promise<Array<{ pubkey: string; expires_at: number | null; storage_limit_bytes: number | null }>>
+  setStorageLimit(pubkey: string, limitBytes: number | null): Promise<void>
+  registerWithInviteCode(pubkey: string, code: string): Promise<{ ok: boolean; error?: string }>
   readonly privateMode: boolean
 }
 
+function generateCode(): string {
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+  const bytes = new Uint8Array(12)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, (b) => chars[b % chars.length]).join("")
+}
+
+export { generateCode }
+
 export async function initAccessControl(db: DB, privateMode: boolean): Promise<AccessControl> {
-  // Pre-load allowlist into memory for fast sync checks
   const allowedSet = new Map<string, number | null>()
   if (privateMode) {
-    const rows = await db.select({ pubkey: allowedPubkeys.pubkey, expiresAt: allowedPubkeys.expiresAt }).from(allowedPubkeys)
+    const rows = await db.select({ pubkey: users.pubkey, expiresAt: users.expiresAt }).from(users)
     for (const row of rows) {
       allowedSet.set(row.pubkey, row.expiresAt)
     }
@@ -28,25 +38,70 @@ export async function initAccessControl(db: DB, privateMode: boolean): Promise<A
     return expiresAt > Math.floor(Date.now() / 1000)
   }
 
-  async function allow(pubkey: string, expiresAt: number | null): Promise<void> {
-    await db.insert(allowedPubkeys).values({ pubkey, expiresAt })
-      .onConflictDoUpdate({ target: allowedPubkeys.pubkey, set: { expiresAt } })
+  async function allow(pubkey: string, expiresAt: number | null, storageLimitBytes?: number | null): Promise<void> {
+    const set: Record<string, unknown> = { expiresAt }
+    if (storageLimitBytes !== undefined) {
+      set.storageLimitBytes = storageLimitBytes
+    }
+    await db.insert(users).values({ pubkey, expiresAt, storageLimitBytes: storageLimitBytes ?? null })
+      .onConflictDoUpdate({ target: users.pubkey, set })
     allowedSet.set(pubkey, expiresAt)
   }
 
   async function revoke(pubkey: string): Promise<boolean> {
-    const result = await db.delete(allowedPubkeys).where(eq(allowedPubkeys.pubkey, pubkey))
+    const result = await db.delete(users).where(eq(users.pubkey, pubkey))
     allowedSet.delete(pubkey)
     return (result as any).count > 0
   }
 
-  async function list(): Promise<Array<{ pubkey: string; expires_at: number | null }>> {
+  async function list(): Promise<Array<{ pubkey: string; expires_at: number | null; storage_limit_bytes: number | null }>> {
     const rows = await db
-      .select({ pubkey: allowedPubkeys.pubkey, expiresAt: allowedPubkeys.expiresAt })
-      .from(allowedPubkeys)
-      .orderBy(allowedPubkeys.createdAt)
-    return rows.map((r) => ({ pubkey: r.pubkey, expires_at: r.expiresAt }))
+      .select({ pubkey: users.pubkey, expiresAt: users.expiresAt, storageLimitBytes: users.storageLimitBytes })
+      .from(users)
+      .orderBy(users.createdAt)
+    return rows.map((r) => ({ pubkey: r.pubkey, expires_at: r.expiresAt, storage_limit_bytes: r.storageLimitBytes }))
   }
 
-  return { isAllowed, allow, revoke, list, privateMode }
+  async function setStorageLimit(pubkey: string, limitBytes: number | null): Promise<void> {
+    await db.update(users)
+      .set({ storageLimitBytes: limitBytes })
+      .where(eq(users.pubkey, pubkey))
+  }
+
+  async function registerWithInviteCode(pubkey: string, code: string): Promise<{ ok: boolean; error?: string }> {
+    // Check if pubkey already registered
+    const [existing] = await db.select({ pubkey: users.pubkey }).from(users).where(eq(users.pubkey, pubkey))
+    if (existing) {
+      return { ok: false, error: "pubkey already registered" }
+    }
+
+    // Find and validate invite code
+    const [invite] = await db.select().from(inviteCodes).where(eq(inviteCodes.code, code))
+    if (!invite) {
+      return { ok: false, error: "invalid invite code" }
+    }
+    if (invite.revoked) {
+      return { ok: false, error: "invite code has been revoked" }
+    }
+    if (invite.useCount >= invite.maxUses) {
+      return { ok: false, error: "invite code has been fully used" }
+    }
+    const now = Math.floor(Date.now() / 1000)
+    if (invite.expiresAt && invite.expiresAt < now) {
+      return { ok: false, error: "invite code has expired" }
+    }
+
+    // Atomically increment use count and create user
+    await db.transaction(async (tx) => {
+      await tx.update(inviteCodes)
+        .set({ useCount: sql`${inviteCodes.useCount} + 1` })
+        .where(eq(inviteCodes.id, invite.id))
+      await tx.insert(users).values({ pubkey, inviteCodeId: invite.id })
+    })
+
+    allowedSet.set(pubkey, null)
+    return { ok: true }
+  }
+
+  return { isAllowed, allow, revoke, list, setStorageLimit, registerWithInviteCode, privateMode }
 }

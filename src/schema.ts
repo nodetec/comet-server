@@ -1,4 +1,4 @@
-import { pgTable, text, bigint, integer, jsonb, timestamp, primaryKey, index, check } from "drizzle-orm/pg-core"
+import { pgTable, text, bigint, integer, jsonb, timestamp, primaryKey, index, boolean, serial } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 
 export const events = pgTable("events", {
@@ -61,8 +61,20 @@ export const changeTags = pgTable("change_tags", {
   index("idx_change_tags_lookup").on(t.tagName, t.tagValue),
 ])
 
-export const allowedPubkeys = pgTable("allowed_pubkeys", {
+export const inviteCodes = pgTable("invite_codes", {
+  id: serial("id").primaryKey(),
+  code: text("code").notNull().unique(),
+  maxUses: integer("max_uses").notNull().default(1),
+  useCount: integer("use_count").notNull().default(0),
+  expiresAt: bigint("expires_at", { mode: "number" }),
+  revoked: boolean("revoked").notNull().default(false),
+  createdAt: bigint("created_at", { mode: "number" }).notNull().default(sql`(EXTRACT(EPOCH FROM NOW())::BIGINT)`),
+})
+
+export const users = pgTable("users", {
   pubkey: text("pubkey").primaryKey(),
+  inviteCodeId: integer("invite_code_id").references(() => inviteCodes.id),
+  storageLimitBytes: bigint("storage_limit_bytes", { mode: "number" }),
   expiresAt: bigint("expires_at", { mode: "number" }),
   createdAt: bigint("created_at", { mode: "number" }).notNull().default(sql`(EXTRACT(EPOCH FROM NOW())::BIGINT)`),
 })

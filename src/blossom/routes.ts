@@ -60,6 +60,21 @@ export function blossomRoutes(db: DB): Hono {
     const data = new Uint8Array(body)
     console.log(`[BLOSSOM] upload received ${data.byteLength} bytes, type=${c.req.header("Content-Type")}`)
 
+    // Check storage quota
+    const [currentUsage, storageLimit] = await Promise.all([
+      blobDb.getBlobTotalSizeByPubkey(db, auth.pubkey!),
+      blobDb.getStorageLimitForPubkey(db, auth.pubkey!),
+    ])
+    if (currentUsage + data.byteLength > storageLimit) {
+      console.log(`[BLOSSOM] upload rejected: quota exceeded for pubkey=${auth.pubkey!.slice(0, 8)}… (usage=${currentUsage}, limit=${storageLimit}, required=${data.byteLength})`)
+      return c.json({
+        error: "storage limit exceeded",
+        usage: currentUsage,
+        limit: storageLimit,
+        required: data.byteLength,
+      }, 507)
+    }
+
     // Compute SHA-256 hash
     const hashBuffer = await crypto.subtle.digest("SHA-256", data)
     const sha256 = Array.from(new Uint8Array(hashBuffer))

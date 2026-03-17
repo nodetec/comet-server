@@ -10,6 +10,8 @@ import { EventsPage } from "@/pages/events"
 import { BlobsPage } from "@/pages/blobs"
 import { AllowlistPage } from "@/pages/allowlist"
 import { ConnectionsPage } from "@/pages/connections"
+import { UsersPage } from "@/pages/users"
+import { InviteCodesPage } from "@/pages/invite-codes"
 import "./index.css"
 
 const queryClient = new QueryClient({
@@ -33,7 +35,9 @@ createRoot(document.getElementById("root")!).render(
               <Route path="/admin/events" element={<EventsPage />} />
               <Route path="/admin/blobs" element={<BlobsPage />} />
               <Route path="/admin/allowlist" element={<AllowlistPage />} />
+              <Route path="/admin/invite-codes" element={<InviteCodesPage />} />
               <Route path="/admin/connections" element={<ConnectionsPage />} />
+              <Route path="/admin/users" element={<UsersPage />} />
             </Route>
           </Routes>
         </BrowserRouter>

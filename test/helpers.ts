@@ -26,7 +26,7 @@ export type TestContext = {
 
 /** Truncate all tables for a clean test run. */
 async function truncateAll(db: DB) {
-  await db.execute(rawSql`TRUNCATE events, event_tags, deleted_events, deleted_coords, changes, change_tags, allowed_pubkeys, blobs, blob_owners CASCADE`)
+  await db.execute(rawSql`TRUNCATE events, event_tags, deleted_events, deleted_coords, changes, change_tags, users, invite_codes, blobs, blob_owners CASCADE`)
   // Reset identity sequence for changes.seq so tests get predictable low numbers
   await db.execute(rawSql`ALTER SEQUENCE changes_seq_seq RESTART WITH 1`)
 }

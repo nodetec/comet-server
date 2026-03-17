@@ -5,6 +5,8 @@ import {
   HardDrive,
   FileText,
   Wifi,
+  Users,
+  Ticket,
   LogOut,
   Orbit,
 } from "lucide-react"
@@ -19,6 +21,8 @@ const navItems = [
   { to: "/admin/events", icon: FileText, label: "Events" },
   { to: "/admin/blobs", icon: HardDrive, label: "Blobs" },
   { to: "/admin/allowlist", icon: Shield, label: "Allowlist" },
+  { to: "/admin/users", icon: Users, label: "Users" },
+  { to: "/admin/invite-codes", icon: Ticket, label: "Invite Codes" },
   { to: "/admin/connections", icon: Wifi, label: "Connections" },
 ]
 

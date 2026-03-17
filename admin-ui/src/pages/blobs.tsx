@@ -83,6 +83,7 @@ export function BlobsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>SHA-256</TableHead>
+                  <TableHead>Owner</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Size</TableHead>
                   <TableHead>Uploaded</TableHead>
@@ -94,6 +95,23 @@ export function BlobsPage() {
                   <TableRow key={blob.sha256}>
                     <TableCell className="font-mono text-xs">
                       {blob.sha256.slice(0, 16)}...
+                    </TableCell>
+                    <TableCell>
+                      {blob.owners.length === 0 ? (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      ) : (
+                        <div className="flex flex-wrap gap-1">
+                          {blob.owners.map((pk) => (
+                            <Badge
+                              key={pk}
+                              variant="secondary"
+                              className="font-mono text-xs"
+                            >
+                              {pk.slice(0, 12)}...
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell>
                       {blob.type ? (

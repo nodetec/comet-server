@@ -8,6 +8,20 @@
       "when": 1773729660882,
       "tag": "0000_daffy_monster_badoon",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1773741279983,
+      "tag": "0001_shiny_kid_colt",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1773743335397,
+      "tag": "0002_sudden_network",
+      "breakpoints": true
     }
   ]
 }

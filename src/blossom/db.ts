@@ -1,6 +1,8 @@
-import { eq, desc, count, sum, sql } from "drizzle-orm"
+import { eq, desc, count, sql } from "drizzle-orm"
 import type { DB } from "../db"
-import { blobs, blobOwners } from "../schema"
+import { blobs, blobOwners, users } from "../schema"
+
+export const DEFAULT_STORAGE_LIMIT_BYTES = 1 * 1024 * 1024 * 1024 // 1 GB
 
 export type BlobRecord = {
   sha256: string
@@ -59,4 +61,37 @@ export async function getBlobCount(db: DB): Promise<number> {
 export async function getBlobTotalSize(db: DB): Promise<number> {
   const [row] = await db.select({ val: sql<number>`COALESCE(SUM(${blobs.size}), 0)` }).from(blobs)
   return Number(row.val)
+}
+
+export async function getBlobTotalSizeByPubkey(db: DB, pubkey: string): Promise<number> {
+  const [row] = await db
+    .select({ val: sql<number>`COALESCE(SUM(${blobs.size}), 0)` })
+    .from(blobs)
+    .innerJoin(blobOwners, eq(blobs.sha256, blobOwners.sha256))
+    .where(eq(blobOwners.pubkey, pubkey))
+  return Number(row.val)
+}
+
+export async function getStorageLimitForPubkey(db: DB, pubkey: string): Promise<number> {
+  const [row] = await db
+    .select({ storageLimitBytes: users.storageLimitBytes })
+    .from(users)
+    .where(eq(users.pubkey, pubkey))
+  return row?.storageLimitBytes ?? DEFAULT_STORAGE_LIMIT_BYTES
+}
+
+export async function getStorageUsageByPubkey(db: DB): Promise<Map<string, number>> {
+  const rows = await db
+    .select({
+      pubkey: blobOwners.pubkey,
+      totalSize: sql<number>`COALESCE(SUM(${blobs.size}), 0)`,
+    })
+    .from(blobOwners)
+    .innerJoin(blobs, eq(blobs.sha256, blobOwners.sha256))
+    .groupBy(blobOwners.pubkey)
+  const map = new Map<string, number>()
+  for (const row of rows) {
+    map.set(row.pubkey, Number(row.totalSize))
+  }
+  return map
 }
