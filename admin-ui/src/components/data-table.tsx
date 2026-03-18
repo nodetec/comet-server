@@ -88,10 +88,12 @@ export function DataTable<TData, TValue>({
 
   return (
     <div className="space-y-4">
-      {actionBar && selectedRows.length > 0 && (
-        <div className="flex items-center gap-3 rounded-md border bg-muted/50 px-4 py-2">
-          <span className="text-sm font-medium">
-            {selectedRows.length} selected
+      {actionBar && (
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-muted-foreground">
+            {selectedRows.length > 0
+              ? `${selectedRows.length} selected`
+              : ""}
           </span>
           {actionBar({
             selectedRows,

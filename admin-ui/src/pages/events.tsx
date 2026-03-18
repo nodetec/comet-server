@@ -1,10 +1,20 @@
 import { useMemo, useState } from "react"
-import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query"
 import type { ColumnDef } from "@tanstack/react-table"
-import { ArrowUpDown, Trash2 } from "lucide-react"
+import { ArrowUpDown, ChevronDown, Trash2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { DataTable } from "@/components/data-table"
 import { deleteEvents, fetchEvents, type EventEntry } from "@/lib/api"
@@ -143,7 +153,8 @@ export function EventsPage() {
           Browse stored Nostr events
           {allEvents.length > 0 && (
             <span className="ml-1">
-              ({allEvents.length}{hasNextPage ? "+" : ""})
+              ({allEvents.length}
+              {hasNextPage ? "+" : ""})
             </span>
           )}
         </p>
@@ -174,20 +185,35 @@ export function EventsPage() {
         isFetchingNextPage={isFetchingNextPage}
         onLoadMore={() => fetchNextPage()}
         actionBar={({ selectedRows, clearSelection }) => (
-          <Button
-            variant="destructive"
-            size="sm"
-            disabled={deleteMutation.isPending}
-            onClick={async () => {
-              await deleteMutation.mutateAsync(selectedRows.map((r) => r.id))
-              clearSelection()
-            }}
-          >
-            <Trash2 className="mr-1 h-3 w-3" />
-            {deleteMutation.isPending
-              ? "Deleting..."
-              : `Delete ${selectedRows.length}`}
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm">
+                Actions
+                {selectedRows.length > 0 && (
+                  <span className="ml-1 text-muted-foreground">
+                    ({selectedRows.length})
+                  </span>
+                )}
+                <ChevronDown className="ml-1 h-3 w-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                disabled={selectedRows.length === 0 || deleteMutation.isPending}
+                onClick={async () => {
+                  await deleteMutation.mutateAsync(
+                    selectedRows.map((r) => r.id)
+                  )
+                  clearSelection()
+                }}
+                className="text-destructive focus:text-destructive"
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete {selectedRows.length} event
+                {selectedRows.length !== 1 ? "s" : ""}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
       />
     </div>
