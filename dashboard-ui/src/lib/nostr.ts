@@ -44,12 +44,19 @@ declare global {
   }
 }
 
+interface PendingFetch {
+  events: NostrEvent[]
+  resolve: (events: NostrEvent[]) => void
+  timeout: ReturnType<typeof setTimeout>
+}
+
 export class RelayClient {
   private ws: WebSocket | null = null
   private url: string
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectDelay = 1000
   private pendingOk = new Map<string, { resolve: (ok: boolean) => void; reject: (err: Error) => void }>()
+  private pendingFetches = new Map<string, PendingFetch>()
   private closed = false
 
   onEvent: EventCallback = () => {}
@@ -107,6 +114,11 @@ export class RelayClient {
       reject(new Error("disconnected"))
     }
     this.pendingOk.clear()
+    for (const [, { resolve, timeout }] of this.pendingFetches) {
+      clearTimeout(timeout)
+      resolve([])
+    }
+    this.pendingFetches.clear()
   }
 
   subscribe(subId: string, filters: NostrFilter[]): void {
@@ -131,6 +143,26 @@ export class RelayClient {
     })
   }
 
+  /**
+   * Fetch events matching filters. Resolves with all events received
+   * before EOSE or the timeout (whichever comes first).
+   */
+  fetch(filters: NostrFilter[], timeoutMs = 15000): Promise<NostrEvent[]> {
+    return new Promise((resolve) => {
+      const subId = `f:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 6)}`
+      const timeout = setTimeout(() => {
+        const pending = this.pendingFetches.get(subId)
+        if (pending) {
+          this.pendingFetches.delete(subId)
+          this.closeSubscription(subId)
+          resolve(pending.events)
+        }
+      }, timeoutMs)
+      this.pendingFetches.set(subId, { events: [], resolve, timeout })
+      this.subscribe(subId, filters)
+    })
+  }
+
   private send(data: string): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(data)
@@ -149,12 +181,25 @@ export class RelayClient {
       case "EVENT": {
         const subId = msg[1] as string
         const event = msg[2] as NostrEvent
-        this.onEvent(subId, event)
+        const fetchPending = this.pendingFetches.get(subId)
+        if (fetchPending) {
+          fetchPending.events.push(event)
+        } else {
+          this.onEvent(subId, event)
+        }
         break
       }
       case "EOSE": {
         const subId = msg[1] as string
-        this.onEose(subId)
+        const fetchPending = this.pendingFetches.get(subId)
+        if (fetchPending) {
+          clearTimeout(fetchPending.timeout)
+          this.pendingFetches.delete(subId)
+          this.closeSubscription(subId)
+          fetchPending.resolve(fetchPending.events)
+        } else {
+          this.onEose(subId)
+        }
         break
       }
       case "OK": {
@@ -172,7 +217,15 @@ export class RelayClient {
         break
       }
       case "CLOSED": {
-        console.warn("[relay closed sub]", msg[1], msg[2])
+        const subId = msg[1] as string
+        const fetchPending = this.pendingFetches.get(subId)
+        if (fetchPending) {
+          clearTimeout(fetchPending.timeout)
+          this.pendingFetches.delete(subId)
+          fetchPending.resolve(fetchPending.events)
+        } else {
+          console.warn("[relay closed sub]", subId, msg[2])
+        }
         break
       }
     }

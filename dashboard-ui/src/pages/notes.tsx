@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
-import { FileText, Loader2 } from "lucide-react"
+import { FileText, Loader2, Inbox } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
 import { useNostr } from "@/hooks/use-nostr"
+import { useNotes } from "@/hooks/use-notes"
 import { decryptBlob } from "@/lib/blob-crypto"
 import type { BlobRef, Note } from "@/lib/rumor"
 
@@ -83,7 +83,6 @@ function BlobImage({
 function NoteMarkdown({ note }: { note: Note }) {
   const blobMap = useRef<Map<string, BlobRef>>(new Map())
 
-  // Build lookup by plaintext hash
   useEffect(() => {
     blobMap.current.clear()
     for (const blob of note.blobs) {
@@ -95,7 +94,6 @@ function NoteMarkdown({ note }: { note: Note }) {
     (props: React.ComponentProps<"img">) => {
       const src = props.src ?? ""
 
-      // Handle attachment:// protocol (e.g., "attachment://abc123.png")
       if (src.startsWith("attachment://")) {
         const plaintextHash = src.replace("attachment://", "").replace(/\.\w+$/, "")
         const blobRef = blobMap.current.get(plaintextHash)
@@ -109,7 +107,6 @@ function NoteMarkdown({ note }: { note: Note }) {
         )
       }
 
-      // Regular image
       return (
         <img
           src={src}
@@ -121,21 +118,25 @@ function NoteMarkdown({ note }: { note: Note }) {
     []
   )
 
+  // Strip the title from markdown since we render it in the header
+  const content =
+    note.title && note.markdown.startsWith(`# ${note.title}\n\n`)
+      ? note.markdown.slice(`# ${note.title}\n\n`.length)
+      : note.markdown
+
   return (
-    <div className="prose prose-sm dark:prose-invert max-w-none">
+    <div className="prose prose-sm dark:prose-invert max-w-none prose-headings:tracking-tight prose-p:leading-relaxed prose-a:text-primary">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        components={{
-          img: imgComponent,
-        }}
+        components={{ img: imgComponent }}
       >
-        {note.markdown}
+        {content}
       </ReactMarkdown>
     </div>
   )
 }
 
-// ── Note list item ──────────────────────────────────────────────────────
+// ── Helpers ─────────────────────────────────────────────────────────────
 
 function formatRelativeDate(millis: number): string {
   const now = Date.now()
@@ -154,13 +155,22 @@ function formatRelativeDate(millis: number): string {
   return "just now"
 }
 
+function formatFullDate(millis: number): string {
+  return new Date(millis).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  })
+}
+
 function getSnippet(markdown: string, maxLen = 120): string {
-  // Strip the title line and get first bit of content
   const lines = markdown.split("\n")
   const contentLines = lines.filter((l) => !l.startsWith("# ") && l.trim())
   const text = contentLines.join(" ").slice(0, maxLen)
   return text.length >= maxLen ? text + "..." : text
 }
+
+// ── Note list item ──────────────────────────────────────────────────────
 
 function NoteListItem({
   note,
@@ -175,28 +185,29 @@ function NoteListItem({
     <button
       onClick={onSelect}
       className={cn(
-        "w-full text-left px-4 py-3 border-b border-border transition-colors",
-        "hover:bg-accent/50",
-        isSelected && "bg-accent"
+        "w-full text-left p-3 rounded-lg transition-colors",
+        isSelected
+          ? "bg-accent"
+          : "hover:bg-accent/50"
       )}
     >
-      <div className="flex items-start justify-between gap-2">
-        <h3 className="text-sm font-medium leading-tight truncate">
+      <div className="flex items-baseline justify-between gap-2">
+        <h3 className="text-sm font-medium truncate">
           {note.title || "Untitled"}
         </h3>
-        <span className="text-xs text-muted-foreground shrink-0">
+        <span className="text-[11px] text-muted-foreground shrink-0">
           {formatRelativeDate(note.modifiedAt)}
         </span>
       </div>
-      <p className="mt-1 text-xs text-muted-foreground line-clamp-2">
+      <p className="mt-1 text-xs text-muted-foreground/80 line-clamp-2 leading-relaxed">
         {getSnippet(note.markdown)}
       </p>
       {note.tags.length > 0 && (
-        <div className="mt-1.5 flex flex-wrap gap-1">
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
           {note.tags.slice(0, 3).map((tag) => (
             <span
               key={tag}
-              className="inline-flex items-center rounded-full bg-secondary px-1.5 py-0.5 text-[10px] text-secondary-foreground"
+              className="text-[10px] text-primary/70 font-medium"
             >
               #{tag}
             </span>
@@ -211,12 +222,15 @@ function NoteListItem({
 
 function NoteListSkeleton() {
   return (
-    <div className="space-y-0">
+    <div className="px-2 space-y-1">
       {Array.from({ length: 6 }).map((_, i) => (
-        <div key={i} className="px-4 py-3 border-b border-border">
-          <Skeleton className="h-4 w-3/4 mb-2" />
-          <Skeleton className="h-3 w-full mb-1" />
-          <Skeleton className="h-3 w-2/3" />
+        <div key={i} className="p-3 rounded-lg">
+          <div className="flex justify-between">
+            <Skeleton className="h-4 w-3/5" />
+            <Skeleton className="h-3 w-10" />
+          </div>
+          <Skeleton className="h-3 w-full mt-2" />
+          <Skeleton className="h-3 w-2/3 mt-1" />
         </div>
       ))}
     </div>
@@ -226,8 +240,10 @@ function NoteListSkeleton() {
 // ── Main page ───────────────────────────────────────────────────────────
 
 export function NotesPage() {
-  const { notes, isLoading, isAuthenticated } = useNostr()
+  const { isAuthenticated } = useNostr()
+  const { notes, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage } = useNotes()
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null)
+  const loadMoreRef = useRef<HTMLDivElement>(null)
 
   const selectedNote = notes.find((n) => n.id === selectedNoteId) ?? null
 
@@ -238,17 +254,35 @@ export function NotesPage() {
     }
   }, [notes, selectedNoteId])
 
-  // If the selected note was removed (e.g., deleted), clear selection
+  // If the selected note was removed, fall back
   useEffect(() => {
     if (selectedNoteId && !notes.find((n) => n.id === selectedNoteId)) {
       setSelectedNoteId(notes.length > 0 ? notes[0].id : null)
     }
   }, [notes, selectedNoteId])
 
+  // Infinite scroll observer
+  useEffect(() => {
+    const el = loadMoreRef.current
+    if (!el || !hasNextPage) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage) {
+          fetchNextPage()
+        }
+      },
+      { threshold: 0.1 }
+    )
+
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
+
   if (!isAuthenticated && !isLoading) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
-        <div className="flex flex-col items-center gap-2">
+        <div className="flex flex-col items-center gap-3">
           <Loader2 className="h-5 w-5 animate-spin" />
           <p className="text-sm">Connecting to relay...</p>
         </div>
@@ -257,55 +291,90 @@ export function NotesPage() {
   }
 
   return (
-    <div className="flex h-full -m-4 md:-m-6">
+    <div className="flex h-full">
       {/* Left pane: note list */}
-      <div className="w-72 shrink-0 border-r border-border flex flex-col">
-        <div className="px-4 py-3 border-b border-border">
-          <h2 className="text-sm font-semibold">
-            Notes
-            {!isLoading && (
-              <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-                ({notes.length})
+      <div className="w-80 shrink-0 border-r border-border bg-muted/30 flex flex-col">
+        <div className="px-4 py-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold tracking-tight">Notes</h2>
+            {!isLoading && notes.length > 0 && (
+              <span className="text-xs tabular-nums text-muted-foreground">
+                {notes.length}
               </span>
             )}
-          </h2>
+          </div>
         </div>
+
         <ScrollArea className="flex-1">
           {isLoading && notes.length === 0 ? (
             <NoteListSkeleton />
           ) : notes.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-              <FileText className="h-8 w-8 mb-2" />
-              <p className="text-sm">No notes yet</p>
+            <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                <Inbox className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <p className="text-sm font-medium">No notes yet</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Notes you publish from Comet will appear here
+              </p>
             </div>
           ) : (
-            notes.map((note) => (
-              <NoteListItem
-                key={note.id}
-                note={note}
-                isSelected={note.id === selectedNoteId}
-                onSelect={() => setSelectedNoteId(note.id)}
-              />
-            ))
+            <div className="px-2 pb-2 space-y-0.5">
+              {notes.map((note) => (
+                <NoteListItem
+                  key={note.id}
+                  note={note}
+                  isSelected={note.id === selectedNoteId}
+                  onSelect={() => setSelectedNoteId(note.id)}
+                />
+              ))}
+              <div ref={loadMoreRef} className="h-4" />
+              {isFetchingNextPage && (
+                <div className="flex justify-center py-3">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                </div>
+              )}
+            </div>
           )}
         </ScrollArea>
       </div>
 
-      <Separator orientation="vertical" />
-
       {/* Right pane: note detail */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0">
         {selectedNote ? (
           <ScrollArea className="flex-1">
-            <div className="max-w-3xl mx-auto px-6 py-6">
+            <article className="max-w-2xl mx-auto px-8 py-8">
+              <header className="mb-6 pb-6 border-b border-border/50">
+                <h1 className="text-2xl font-semibold tracking-tight">
+                  {selectedNote.title || "Untitled"}
+                </h1>
+                <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                  <time>{formatFullDate(selectedNote.modifiedAt)}</time>
+                  {selectedNote.tags.length > 0 && (
+                    <>
+                      <span className="text-border">·</span>
+                      {selectedNote.tags.map((tag) => (
+                        <span key={tag} className="text-primary/80">
+                          #{tag}
+                        </span>
+                      ))}
+                    </>
+                  )}
+                </div>
+              </header>
               <NoteMarkdown note={selectedNote} />
-            </div>
+            </article>
           </ScrollArea>
         ) : (
-          <div className="flex flex-1 items-center justify-center text-muted-foreground">
-            <div className="flex flex-col items-center gap-2">
-              <FileText className="h-8 w-8" />
-              <p className="text-sm">Select a note to view</p>
+          <div className="flex flex-1 items-center justify-center">
+            <div className="text-center">
+              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+                <FileText className="h-6 w-6 text-muted-foreground" />
+              </div>
+              <h3 className="text-sm font-medium">No note selected</h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Choose a note from the sidebar to start reading
+              </p>
             </div>
           </div>
         )}

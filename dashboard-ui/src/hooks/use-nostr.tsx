@@ -8,15 +8,6 @@ import {
   type ReactNode,
 } from "react"
 import { RelayClient } from "@/lib/nostr"
-import type { NostrEvent } from "@/lib/nostr"
-import { unwrapGiftWrap } from "@/lib/nip59"
-import {
-  parseNoteRumor,
-  parseNotebookRumor,
-  getRumorType,
-  type Note,
-  type Notebook,
-} from "@/lib/rumor"
 
 const PUBKEY_STORAGE_KEY = "pubkey"
 
@@ -26,9 +17,6 @@ interface NostrContextValue {
   relay: RelayClient | null
   signIn: () => Promise<void>
   signOut: () => void
-  notes: Note[]
-  notebooks: Notebook[]
-  isLoading: boolean
   error: string | null
 }
 
@@ -39,91 +27,27 @@ export function NostrProvider({ children }: { children: ReactNode }) {
     () => localStorage.getItem(PUBKEY_STORAGE_KEY)
   )
   const [isAuthenticated, setIsAuthenticated] = useState(false)
-  const [notes, setNotes] = useState<Note[]>([])
-  const [notebooks, setNotebooks] = useState<Note[]>([])
-  const [isLoading, setIsLoading] = useState(false)
+  const [relay, setRelay] = useState<RelayClient | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const relayRef = useRef<RelayClient | null>(null)
-  const notesMapRef = useRef<Map<string, Note>>(new Map())
-  const notebooksMapRef = useRef<Map<string, Notebook>>(new Map())
 
-  const updateNotesState = useCallback(() => {
-    const allNotes = Array.from(notesMapRef.current.values())
-    // Filter out deleted notes and sort by modifiedAt desc
-    const filtered = allNotes
-      .filter((n) => !n.deletedAt)
-      .sort((a, b) => b.modifiedAt - a.modifiedAt)
-    setNotes(filtered)
+  const connectRelay = useCallback((_pk: string) => {
+    const r = new RelayClient()
+    relayRef.current = r
+
+    r.onAuth = () => {
+      setIsAuthenticated(true)
+      setRelay(r)
+    }
+
+    r.onClose = () => {
+      setIsAuthenticated(false)
+      setRelay(null)
+    }
+
+    r.connect()
   }, [])
-
-  const updateNotebooksState = useCallback(() => {
-    const allNotebooks = Array.from(notebooksMapRef.current.values())
-      .sort((a, b) => b.modifiedAt - a.modifiedAt)
-    setNotebooks(allNotebooks as unknown as Note[])
-  }, [])
-
-  const handleEvent = useCallback(
-    async (_subId: string, event: NostrEvent) => {
-      if (event.kind !== 1059) return
-
-      try {
-        const rumor = await unwrapGiftWrap(event)
-        const type = getRumorType(rumor)
-
-        if (type === "note") {
-          const note = parseNoteRumor(rumor)
-          const existing = notesMapRef.current.get(note.id)
-          // LWW: only update if newer
-          if (!existing || note.modifiedAt >= existing.modifiedAt) {
-            notesMapRef.current.set(note.id, note)
-            updateNotesState()
-          }
-        } else if (type === "notebook") {
-          const notebook = parseNotebookRumor(rumor)
-          const existing = notebooksMapRef.current.get(notebook.id)
-          if (!existing || notebook.modifiedAt >= existing.modifiedAt) {
-            notebooksMapRef.current.set(notebook.id, notebook)
-            updateNotebooksState()
-          }
-        }
-      } catch (err) {
-        console.error("Failed to unwrap gift wrap:", err)
-      }
-    },
-    [updateNotesState, updateNotebooksState]
-  )
-
-  const connectRelay = useCallback(
-    (pk: string) => {
-      const relay = new RelayClient()
-      relayRef.current = relay
-
-      setIsLoading(true)
-      setError(null)
-
-      relay.onAuth = () => {
-        setIsAuthenticated(true)
-        // Subscribe to gift wraps addressed to this pubkey
-        relay.subscribe("notes", [{ kinds: [1059], "#p": [pk] }])
-      }
-
-      relay.onEvent = (subId: string, event: NostrEvent) => {
-        void handleEvent(subId, event)
-      }
-
-      relay.onEose = () => {
-        setIsLoading(false)
-      }
-
-      relay.onClose = () => {
-        setIsAuthenticated(false)
-      }
-
-      relay.connect()
-    },
-    [handleEvent]
-  )
 
   const signIn = useCallback(async () => {
     if (!window.nostr) {
@@ -149,10 +73,7 @@ export function NostrProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(PUBKEY_STORAGE_KEY)
     setPubkey(null)
     setIsAuthenticated(false)
-    setNotes([])
-    setNotebooks([])
-    notesMapRef.current.clear()
-    notebooksMapRef.current.clear()
+    setRelay(null)
     if (relayRef.current) {
       relayRef.current.disconnect()
       relayRef.current = null
@@ -170,24 +91,11 @@ export function NostrProvider({ children }: { children: ReactNode }) {
         relayRef.current = null
       }
     }
-    // Only run on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const value: NostrContextValue = {
-    pubkey,
-    isAuthenticated,
-    relay: relayRef.current,
-    signIn,
-    signOut,
-    notes,
-    notebooks: notebooks as unknown as Notebook[],
-    isLoading,
-    error,
-  }
-
   return (
-    <NostrContext.Provider value={value}>
+    <NostrContext.Provider value={{ pubkey, isAuthenticated, relay, signIn, signOut, error }}>
       {children}
     </NostrContext.Provider>
   )

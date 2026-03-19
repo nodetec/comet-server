@@ -116,10 +116,8 @@ export function AppLayout() {
           <span className="text-sm font-semibold">Comet</span>
         </header>
 
-        <main className="flex-1 overflow-auto bg-background">
-          <div className="mx-auto max-w-5xl p-4 md:p-6">
-            <Outlet />
-          </div>
+        <main className="flex-1 overflow-hidden bg-background">
+          <Outlet />
         </main>
       </div>
     </div>
