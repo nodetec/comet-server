@@ -181,40 +181,46 @@ function NoteListItem({
   isSelected: boolean
   onSelect: () => void
 }) {
+  const hasTitle = !!note.title
   return (
     <button
       onClick={onSelect}
       className={cn(
-        "w-full text-left p-3 rounded-lg transition-colors",
+        "relative flex h-[6.75rem] w-full cursor-default flex-col items-start gap-1.5 overflow-hidden rounded-md px-3 py-2.5 text-left text-sm transition-colors",
         isSelected
-          ? "bg-accent"
-          : "hover:bg-accent/50"
+          ? "bg-accent/50"
+          : "hover:bg-accent/30"
       )}
     >
-      <div className="flex items-baseline justify-between gap-2">
-        <h3 className="text-sm font-medium truncate">
-          {note.title || "Untitled"}
-        </h3>
-        <span className="text-[11px] text-muted-foreground shrink-0">
+      <h3 className={cn(
+        "min-w-0 w-full truncate font-semibold",
+        hasTitle ? "text-foreground" : "text-muted-foreground"
+      )}>
+        {note.title || "Untitled"}
+      </h3>
+      <p className={cn(
+        "text-sm text-muted-foreground w-full break-all whitespace-break-spaces",
+        hasTitle ? "line-clamp-2" : "line-clamp-3"
+      )}>
+        {getSnippet(note.markdown, 160)}
+      </p>
+      <div className="mt-auto flex w-full items-center gap-2 min-w-0">
+        <span className="text-xs text-muted-foreground/70 min-w-0 truncate">
           {formatRelativeDate(note.modifiedAt)}
         </span>
+        {note.tags.length > 0 && (
+          <span className="ml-auto text-xs text-primary min-w-0 truncate">
+            {note.tags.slice(0, 2).map((t) => `#${t}`).join(" ")}
+          </span>
+        )}
       </div>
-      <p className="mt-1 text-xs text-muted-foreground/80 line-clamp-2 leading-relaxed">
-        {getSnippet(note.markdown)}
-      </p>
-      {note.tags.length > 0 && (
-        <div className="mt-1.5 flex flex-wrap gap-1.5">
-          {note.tags.slice(0, 3).map((tag) => (
-            <span
-              key={tag}
-              className="text-[10px] text-primary/70 font-medium"
-            >
-              #{tag}
-            </span>
-          ))}
-        </div>
-      )}
     </button>
+  )
+}
+
+function NoteListSeparator({ hidden }: { hidden?: boolean }) {
+  return (
+    <div className={cn("h-px w-full", hidden ? "bg-transparent" : "bg-accent/35")} />
   )
 }
 
@@ -222,15 +228,19 @@ function NoteListItem({
 
 function NoteListSkeleton() {
   return (
-    <div className="px-2 space-y-1">
+    <div className="px-3 space-y-0">
       {Array.from({ length: 6 }).map((_, i) => (
-        <div key={i} className="p-3 rounded-lg">
-          <div className="flex justify-between">
+        <div key={i}>
+          <div className="flex h-[6.75rem] flex-col gap-1.5 px-3 py-2.5">
             <Skeleton className="h-4 w-3/5" />
-            <Skeleton className="h-3 w-10" />
+            <Skeleton className="h-3.5 w-full" />
+            <Skeleton className="h-3.5 w-2/3" />
+            <div className="mt-auto flex justify-between">
+              <Skeleton className="h-3 w-16" />
+              <Skeleton className="h-3 w-12" />
+            </div>
           </div>
-          <Skeleton className="h-3 w-full mt-2" />
-          <Skeleton className="h-3 w-2/3 mt-1" />
+          <div className="h-px w-full bg-accent/35" />
         </div>
       ))}
     </div>
@@ -319,14 +329,23 @@ export function NotesPage() {
               </p>
             </div>
           ) : (
-            <div className="px-2 pb-2 space-y-0.5">
-              {notes.map((note) => (
-                <NoteListItem
-                  key={note.id}
-                  note={note}
-                  isSelected={note.id === selectedNoteId}
-                  onSelect={() => setSelectedNoteId(note.id)}
-                />
+            <div className="px-3 space-y-0">
+              {notes.map((note, i) => (
+                <div key={note.id}>
+                  {i > 0 && (
+                    <NoteListSeparator
+                      hidden={
+                        note.id === selectedNoteId ||
+                        notes[i - 1]?.id === selectedNoteId
+                      }
+                    />
+                  )}
+                  <NoteListItem
+                    note={note}
+                    isSelected={note.id === selectedNoteId}
+                    onSelect={() => setSelectedNoteId(note.id)}
+                  />
+                </div>
               ))}
               <div ref={loadMoreRef} className="h-4" />
               {isFetchingNextPage && (
