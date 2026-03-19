@@ -35,11 +35,13 @@ export const LandingPage: FC<{ release: Release | null }> = ({ release }) => {
       <body class="antialiased bg-neutral-900 h-full">
         <div class="relative isolate h-full overflow-x-hidden bg-neutral-900">
           {/* Top nav */}
-          <nav class="absolute top-0 right-0 z-10 p-6 lg:p-8">
+          <nav style="position:absolute;top:0;right:0;z-index:10;padding:1.5rem 1.5rem;display:flex;justify-content:flex-end">
             <a
               id="auth-btn"
               href="/dashboard/login"
-              class="rounded-md bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/20 transition-colors"
+              style="border-radius:0.375rem;background:rgba(255,255,255,0.1);padding:0.5rem 1rem;font-size:0.875rem;font-weight:600;color:#fff;text-decoration:none;transition:background 0.15s"
+              onmouseover="this.style.background='rgba(255,255,255,0.2)'"
+              onmouseout="this.style.background='rgba(255,255,255,0.1)'"
             >
               Sign in
             </a>
